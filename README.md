@@ -57,7 +57,22 @@ npm run preview
 
 `/Badminton-Doubles-Rotation-Auxiliary-Scoring-System/`
 
-因此部署到 GitHub Pages 時，請把產物發布到該 repository 對應的 Pages 站點。
+並已內建自動部署流程：
+
+- Workflow 檔案：[.github/workflows/deploy-pages.yml](.github/workflows/deploy-pages.yml)
+- 觸發條件：push 到 main
+- 部署目標：GitHub Pages
+
+### 一次設定後即可手機直接開
+
+1. 到 GitHub Repository 的 Settings > Pages。
+2. Build and deployment 的 Source 選 GitHub Actions。
+3. push 到 main 後，等待 Actions 跑完。
+4. 開啟網站網址：
+
+https://dada8173.github.io/Badminton-Doubles-Rotation-Auxiliary-Scoring-System/
+
+你可以把這個網址直接加到手機主畫面，之後點圖示即可使用。
 
 ## 使用方式
 
