@@ -55,7 +55,7 @@ export type MatchState = {
 
 export type MatchSnapshot = Omit<MatchState, 'snapshots'>;
 
-export type AppScene = 'home' | 'setup' | 'position' | 'match';
+export type AppScene = 'home' | 'setup' | 'position' | 'match' | 'sessionSetup' | 'courtScheduler';
 
 export type AppState = {
   scene: AppScene;

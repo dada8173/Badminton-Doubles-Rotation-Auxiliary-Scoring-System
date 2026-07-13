@@ -8,7 +8,10 @@ import {
   undoLastRally,
 } from './logic/matchEngine';
 import { clearAppState, hasSavedAppState, loadAppState, saveAppState } from './storage/matchStorage';
+import { clearCourtSession, hasSavedCourtSession, loadCourtSession, saveCourtSession } from './storage/sessionStorage';
+import { acceptAssignment, cancelAssignment, completeAssignment, createCourt, createCourtSession, createSessionPlayer, recommendAssignment, updatePlayerQueueStatus } from './logic/sessionScheduler';
 import type { AppScene, CourtPositions, MatchConfig, MatchState, Player } from './types/match';
+import type { CourtPlayMode, CourtSessionState, Gender, PaymentStatus, PlayerQueueStatus } from './types/session';
 
 type DraftState = {
   config: MatchConfig;
@@ -21,6 +24,9 @@ type RallyDraft = {
   losingPlayerId: string;
   note: string;
 };
+
+type SessionSetupDraft = { name: string; courtCount: number; defaultMode: CourtPlayMode; allowUnpaidPlayers: boolean };
+type PlayerFormDraft = { name: string; level: number; gender: Gender; paymentStatus: PaymentStatus };
 
 const createEmptyRallyDraft = (): RallyDraft => ({
   reason: '',
@@ -74,9 +80,16 @@ const App = () => {
   const [hydrated, setHydrated] = useState(false);
   const [message, setMessage] = useState('');
   const [rallyDraft, setRallyDraft] = useState<RallyDraft>(() => createEmptyRallyDraft());
+  const [courtSession, setCourtSession] = useState<CourtSessionState | undefined>();
+  const [sessionDraft, setSessionDraft] = useState<SessionSetupDraft>({ name: '今日排場', courtCount: 4, defaultMode: 'doubles', allowUnpaidPlayers: true });
+  const [playerForm, setPlayerForm] = useState<PlayerFormDraft>({ name: '', level: 5, gender: 'unspecified', paymentStatus: 'paid' });
 
   useEffect(() => {
     const saved = loadAppState();
+    const savedSession = loadCourtSession();
+    if (savedSession) {
+      setCourtSession(savedSession);
+    }
     if (saved?.match) {
       setScene('match');
       setMatch(saved.match);
@@ -102,7 +115,14 @@ const App = () => {
     clearAppState();
   }, [hydrated, match, scene]);
 
+  useEffect(() => {
+    if (hydrated && courtSession) {
+      saveCourtSession(courtSession);
+    }
+  }, [courtSession, hydrated]);
+
   const savedAvailable = hydrated && hasSavedAppState();
+  const savedSessionAvailable = hydrated && (Boolean(courtSession) || hasSavedCourtSession());
 
   const positionSummary = useMemo(() => {
     if (!match) {
@@ -246,6 +266,42 @@ const App = () => {
   const losingPlayerOptions = match?.players ?? [];
 
   const playerName = (playerId?: string) => match?.players.find((player) => player.id === playerId)?.name ?? '';
+  const sessionPlayerName = (playerId: string) => courtSession?.players.find((player) => player.id === playerId)?.name ?? '未知球員';
+
+  const startSessionSetup = () => { setScene('sessionSetup'); setMessage(''); };
+  const continueCourtSession = () => { const saved = courtSession ?? loadCourtSession(); if (saved) { setCourtSession(saved); setScene('courtScheduler'); setMessage(''); } };
+  const submitSessionSetup = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    let next = createCourtSession(sessionDraft.name.trim() || '今日排場');
+    next = { ...next, policy: { ...next.policy, allowUnpaidPlayers: sessionDraft.allowUnpaidPlayers }, courts: Array.from({ length: sessionDraft.courtCount }, (_, index) => createCourt({ name: `Court ${index + 1}`, mode: sessionDraft.defaultMode })) };
+    setCourtSession(next); setScene('courtScheduler'); setMessage('已建立排場 Session。');
+  };
+  const addSessionPlayer = (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!playerForm.name.trim()) return;
+    setCourtSession((current) => current ? { ...current, updatedAt: new Date().toISOString(), players: [...current.players, createSessionPlayer(playerForm)] } : current);
+    setPlayerForm({ name: '', level: 5, gender: 'unspecified', paymentStatus: 'paid' });
+  };
+  const setPlayerStatus = (playerId: string, status: PlayerQueueStatus) => setCourtSession((current) => current ? updatePlayerQueueStatus(current, playerId, status) : current);
+  const scheduleCourt = (courtId: string) => setCourtSession((current) => { if (!current) return current; const rec = recommendAssignment(current, courtId); if ('error' in rec) { setMessage(rec.error); return current; } setMessage(rec.reason); return acceptAssignment(current, rec); });
+  const fillOpenCourts = () => setCourtSession((current) => {
+    if (!current) return current;
+    let next = current;
+    let acceptedCount = 0;
+    for (const court of current.courts.filter((item) => item.status === 'open')) {
+      const rec = recommendAssignment(next, court.id);
+      if (!('error' in rec)) {
+        next = acceptAssignment(next, rec);
+        acceptedCount += 1;
+      }
+    }
+    if (!acceptedCount) { setMessage('目前沒有可接受的空場推薦。'); return current; }
+    setMessage(`已填入 ${acceptedCount} 面空場。`);
+    return next;
+  });
+  const finishCourtAssignment = (assignmentId: string) => setCourtSession((current) => current ? completeAssignment(current, assignmentId) : current);
+  const cancelCourtAssignment = (assignmentId: string) => setCourtSession((current) => current ? cancelAssignment(current, assignmentId) : current);
+  const resetCourtSession = () => { clearCourtSession(); setCourtSession(undefined); setScene('home'); setMessage('已清除排場 Session。'); };
 
   return (
     <div className="app-shell">
@@ -261,8 +317,8 @@ const App = () => {
           <div className="hero-card">
             <span className="status-dot" />
             <div>
-              <strong>{match ? '比賽進行中' : '待建立新比賽'}</strong>
-              <p>{savedAvailable ? '可繼續上一場比賽' : '目前沒有可恢復的比賽'}</p>
+              <strong>{scene === 'courtScheduler' ? '排場 Session 進行中' : match ? '比賽進行中' : '待建立新比賽'}</strong>
+              <p>{savedSessionAvailable ? '可繼續排場地' : savedAvailable ? '可繼續上一場比賽' : '目前沒有可恢復資料'}</p>
             </div>
           </div>
         </header>
@@ -277,7 +333,59 @@ const App = () => {
             <button className="secondary-btn" type="button" onClick={continueMatch} disabled={!savedAvailable}>
               繼續上一場比賽
             </button>
+            <button className="primary-btn" type="button" onClick={startSessionSetup}>
+              開始排場地
+            </button>
+            <button className="secondary-btn" type="button" onClick={continueCourtSession} disabled={!savedSessionAvailable}>
+              繼續排場地
+            </button>
           </section>
+        ) : null}
+
+
+
+        {scene === 'sessionSetup' ? (
+          <section className="panel">
+            <div className="panel-head"><div><p className="section-kicker">排場 Session</p><h2>建立今天的場地輪轉</h2></div><button className="ghost-btn" type="button" onClick={() => setScene('home')}>返回首頁</button></div>
+            <form className="form-grid" onSubmit={submitSessionSetup}>
+              <label>Session 名稱<input value={sessionDraft.name} onChange={(event) => setSessionDraft((current) => ({ ...current, name: event.target.value }))} required /></label>
+              <label>場地數<input type="number" min={1} max={8} value={sessionDraft.courtCount} onChange={(event) => setSessionDraft((current) => ({ ...current, courtCount: Number(event.target.value) }))} /></label>
+              <label>預設模式<select value={sessionDraft.defaultMode} onChange={(event) => setSessionDraft((current) => ({ ...current, defaultMode: event.target.value as CourtPlayMode }))}><option value="doubles">雙打</option><option value="singles">單打</option></select></label>
+              <label className="toggle-row"><input type="checkbox" checked={sessionDraft.allowUnpaidPlayers} onChange={(event) => setSessionDraft((current) => ({ ...current, allowUnpaidPlayers: event.target.checked }))} />允許未付款 / 未知付款狀態上場</label>
+              <div className="form-actions"><button className="ghost-btn" type="button" onClick={goBackToHome}>返回</button><button className="primary-btn" type="submit">建立排場</button></div>
+            </form>
+          </section>
+        ) : null}
+
+        {scene === 'courtScheduler' && courtSession ? (
+          <main className="scheduler-layout">
+            <section className="panel scheduler-main">
+              <div className="panel-head"><div><p className="section-kicker">場地牆</p><h2>{courtSession.name}</h2></div><div className="inline-actions"><button className="primary-btn" type="button" onClick={fillOpenCourts}>一鍵填滿空場</button><button className="ghost-btn" type="button" onClick={resetCourtSession}>清除 Session</button></div></div>
+              <div className="court-wall">
+                {courtSession.courts.map((court) => {
+                  const assignment = courtSession.assignments.find((item) => item.id === court.currentAssignmentId);
+                  return <article className="scheduler-card" key={court.id}>
+                    <div className="card-title"><strong>{court.name}</strong><span>{court.mode === 'doubles' ? '雙打' : '單打'} · {court.status === 'open' ? '空場' : '進行中'}</span></div>
+                    {assignment ? <><div className="teams"><div><span>A 隊</span>{assignment.teamAPlayerIds.map(sessionPlayerName).join('、')}</div><div><span>B 隊</span>{assignment.teamBPlayerIds.map(sessionPlayerName).join('、')}</div></div><p className="score-explain">總分 {assignment.scoreBreakdown.total.toFixed(1)}｜公平 {assignment.scoreBreakdown.fairness.toFixed(1)}｜等級 {assignment.scoreBreakdown.skillBalance.toFixed(1)}</p><div className="inline-actions"><button className="primary-btn" type="button" onClick={() => finishCourtAssignment(assignment.id)}>完成此場</button><button className="ghost-btn" type="button" onClick={() => cancelCourtAssignment(assignment.id)}>取消此場</button></div></> : <button className="primary-btn" type="button" onClick={() => scheduleCourt(court.id)}>排下一場</button>}
+                  </article>;
+                })}
+              </div>
+            </section>
+
+            <aside className="panel">
+              <div className="panel-head"><div><p className="section-kicker">玩家管理</p><h2>候場 / 休息 / 離場</h2></div></div>
+              <form className="player-form" onSubmit={addSessionPlayer}>
+                <input placeholder="玩家姓名" value={playerForm.name} onChange={(event) => setPlayerForm((current) => ({ ...current, name: event.target.value }))} required />
+                <input type="number" min={1} max={10} value={playerForm.level} onChange={(event) => setPlayerForm((current) => ({ ...current, level: Number(event.target.value) }))} />
+                <select value={playerForm.gender} onChange={(event) => setPlayerForm((current) => ({ ...current, gender: event.target.value as Gender }))}><option value="unspecified">未指定</option><option value="male">男</option><option value="female">女</option><option value="other">其他</option></select>
+                <select value={playerForm.paymentStatus} onChange={(event) => setPlayerForm((current) => ({ ...current, paymentStatus: event.target.value as PaymentStatus }))}><option value="paid">已付款</option><option value="unpaid">未付款</option><option value="waived">免收</option><option value="unknown">未知</option></select>
+                <button className="primary-btn" type="submit">新增玩家</button>
+              </form>
+              <div className="player-list">
+                {courtSession.players.map((player) => <article className="player-row" key={player.id}><div><strong>{player.name}</strong><span>Lv.{player.level}｜{player.paymentStatus}｜已打 {player.gamesPlayed}｜{player.queueStatus}</span></div><select value={player.queueStatus} disabled={player.queueStatus === 'playing'} onChange={(event) => setPlayerStatus(player.id, event.target.value as PlayerQueueStatus)}><option value="waiting">候場</option><option value="resting">休息</option><option value="left">離場</option><option value="blocked">不可排</option><option value="playing">場上</option></select></article>)}
+              </div>
+            </aside>
+          </main>
         ) : null}
 
         {scene === 'setup' ? (
