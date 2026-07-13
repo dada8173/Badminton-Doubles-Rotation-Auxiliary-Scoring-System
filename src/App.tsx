@@ -16,6 +16,18 @@ type DraftState = {
   positions: CourtPositions;
 };
 
+type RallyDraft = {
+  reason: string;
+  losingPlayerId: string;
+  note: string;
+};
+
+const createEmptyRallyDraft = (): RallyDraft => ({
+  reason: '',
+  losingPlayerId: '',
+  note: '',
+});
+
 const createDraftPlayers = (leftTeamName: string, rightTeamName: string): Player[] => [
   { id: 'left-a', name: `${leftTeamName} A`, team: 'left' },
   { id: 'left-b', name: `${leftTeamName} B`, team: 'left' },
@@ -61,6 +73,7 @@ const App = () => {
   const [draft, setDraft] = useState<DraftState>(() => createDefaultDraft());
   const [hydrated, setHydrated] = useState(false);
   const [message, setMessage] = useState('');
+  const [rallyDraft, setRallyDraft] = useState<RallyDraft>(() => createEmptyRallyDraft());
 
   useEffect(() => {
     const saved = loadAppState();
@@ -198,7 +211,8 @@ const App = () => {
       return;
     }
 
-    setMatch((current) => (current ? applyRally(current, side) : current));
+    setMatch((current) => (current ? applyRally(current, side, rallyDraft) : current));
+    setRallyDraft(createEmptyRallyDraft());
   };
 
   const undoPoint = () => {
@@ -228,6 +242,10 @@ const App = () => {
     const values = Object.values(draft.positions);
     return new Set(values).size !== values.length;
   })();
+
+  const losingPlayerOptions = match?.players ?? [];
+
+  const playerName = (playerId?: string) => match?.players.find((player) => player.id === playerId)?.name ?? '';
 
   return (
     <div className="app-shell">
@@ -478,6 +496,39 @@ const App = () => {
                 </div>
               </div>
 
+              <div className="rally-entry">
+                <label>
+                  本球原因（選填）
+                  <input
+                    value={rallyDraft.reason}
+                    placeholder="例如：殺球得分、出界、觸網"
+                    onChange={(event) => setRallyDraft((current) => ({ ...current, reason: event.target.value }))}
+                  />
+                </label>
+                <label>
+                  失分者（選填）
+                  <select
+                    value={rallyDraft.losingPlayerId}
+                    onChange={(event) => setRallyDraft((current) => ({ ...current, losingPlayerId: event.target.value }))}
+                  >
+                    <option value="">不指定</option>
+                    {losingPlayerOptions.map((player) => (
+                      <option key={player.id} value={player.id}>
+                        {player.name}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label className="rally-note">
+                  備註（選填）
+                  <textarea
+                    value={rallyDraft.note}
+                    placeholder="補充判決、戰術或特殊狀況"
+                    onChange={(event) => setRallyDraft((current) => ({ ...current, note: event.target.value }))}
+                  />
+                </label>
+              </div>
+
               <div className="big-actions">
                 <button className="score-btn left" type="button" onClick={() => scorePoint('left')} disabled={match.isGameOver}>
                   左方得分
@@ -521,6 +572,8 @@ const App = () => {
                     <div>
                       <strong>#{rally.rallyNumber} {rally.scoringSide === 'left' ? '左方' : '右方'}得分</strong>
                       <p>{rally.reason}</p>
+                      {rally.losingPlayerId ? <p>失分者：{playerName(rally.losingPlayerId)}</p> : null}
+                      {rally.note ? <p>備註：{rally.note}</p> : null}
                     </div>
                     <small>
                       {rally.scoreAfter.left} : {rally.scoreAfter.right}

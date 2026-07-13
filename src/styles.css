@@ -25,7 +25,8 @@ body {
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
 }
 
@@ -40,7 +41,8 @@ button:disabled {
 }
 
 input,
-select {
+select,
+textarea {
   width: 100%;
   border: 1px solid rgba(148, 163, 184, 0.28);
   border-radius: 14px;
@@ -51,6 +53,7 @@ select {
 
 input:focus,
 select:focus,
+textarea:focus,
 button:focus-visible {
   outline: 2px solid #7dd3fc;
   outline-offset: 2px;
@@ -330,6 +333,30 @@ button:focus-visible {
   border: 1px solid rgba(148, 163, 184, 0.14);
 }
 
+
+.rally-entry {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.8rem;
+  margin: 1rem 0;
+}
+
+.rally-entry label {
+  display: grid;
+  gap: 0.5rem;
+  color: #dce7ff;
+  font-weight: 600;
+}
+
+.rally-note {
+  grid-column: 1 / -1;
+}
+
+textarea {
+  min-height: 88px;
+  resize: vertical;
+}
+
 .big-actions {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -398,6 +425,7 @@ button:focus-visible {
   .form-grid,
   .position-grid,
   .match-status-grid,
+  .rally-entry,
   .big-actions,
   .court-map {
     grid-template-columns: 1fr;
