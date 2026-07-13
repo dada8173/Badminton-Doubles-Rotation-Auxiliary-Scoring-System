@@ -118,7 +118,7 @@ const determineWinner = (state: MatchState): 'left' | 'right' | undefined => {
 export const applyRally = (
   state: MatchState,
   scoringSide: 'left' | 'right',
-  note?: string,
+  details?: Pick<RallyRecord, 'reason' | 'losingPlayerId' | 'note'>,
 ): MatchState => {
   if (state.isGameOver) {
     return state;
@@ -130,6 +130,7 @@ export const applyRally = (
   next.positions = clone(state.positions);
 
   next[scoreKey(scoringSide)] += 1;
+  next.courtChangeAnnounced = false;
 
   if (next.servingSide === scoringSide) {
     next.positions = swapTeamPositions(next.positions, scoringSide);
@@ -154,6 +155,12 @@ export const applyRally = (
   const serverId = next.currentServerId;
   const receiverId = next.currentReceiverId;
 
+  const defaultReason = next.courtChangeAnnounced
+    ? '達到換場點'
+    : next.servingSide === scoringSide
+      ? '發球方得分，交換站位'
+      : '接發方得分，發球權轉移';
+
   const record: RallyRecord = {
     rallyNumber,
     scoringSide,
@@ -162,8 +169,9 @@ export const applyRally = (
     serverId,
     receiverId,
     positionsAfter: clone(next.positions),
-    reason: next.courtChangeAnnounced ? '達到換場點' : next.servingSide === scoringSide ? '發球方得分，交換站位' : '接發方得分，發球權轉移',
-    note,
+    reason: details?.reason?.trim() || defaultReason,
+    losingPlayerId: details?.losingPlayerId || undefined,
+    note: details?.note?.trim() || undefined,
     timestamp: new Date().toISOString(),
   };
 
